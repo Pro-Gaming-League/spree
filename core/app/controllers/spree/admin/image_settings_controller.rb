@@ -2,7 +2,7 @@ module Spree
   module Admin
     class ImageSettingsController < Spree::Admin::BaseController
       def edit
-        @styles = ActiveSupport::JSON.decode(Spree::Config[:attachment_styles])
+        @styles = ActiveSupport::JSON.decode(Spree::Config[:attachment_styles]).symbolize_keys
         @headers = ActiveSupport::JSON.decode(Spree::Config[:s3_headers])
       end
 
@@ -55,7 +55,7 @@ module Spree
           Spree::Image.attachment_definitions[:attachment].delete :storage
         end
 
-        Spree::Image.attachment_definitions[:attachment][:styles] = ActiveSupport::JSON.decode(Spree::Config[:attachment_styles])
+        Spree::Image.attachment_definitions[:attachment][:styles] = ActiveSupport::JSON.decode(Spree::Config[:attachment_styles]).symbolize_keys
         Spree::Image.attachment_definitions[:attachment][:path] = Spree::Config[:attachment_path]
         Spree::Image.attachment_definitions[:attachment][:default_url] = Spree::Config[:attachment_default_url]
         Spree::Image.attachment_definitions[:attachment][:default_style] = Spree::Config[:attachment_default_style]
