@@ -112,6 +112,7 @@ describe Spree::Order do
     end
 
     it "should change the shipment state to ready if order is paid" do
+      order.inventory_units << FactoryGirl.create(:inventory_unit)
       order.stub :shipping_method => mock_model(Spree::ShippingMethod, :create_adjustment => true, :adjustment_label => "Shipping")
       order.create_shipment!
       order.stub(:paid? => true, :complete? => true)
@@ -154,9 +155,19 @@ describe Spree::Order do
       order.finalize!
     end
 
-    it "should log state event" do
-      order.state_changes.should_receive(:create).exactly(3).times #order, shipment & payment state changes
+    it "should log state events" do
       order.finalize!
+      payment_state_changes = order.state_changes.where(:name => "payment")
+      payment_state_changes.count.should == 1
+      payment_state_change = payment_state_changes.first
+      payment_state_change.previous_state.should be_nil
+      payment_state_change.next_state.should == "balance_due"
+
+      order_state_changes = order.state_changes.where(:name => "order")
+      order_state_changes.count.should == 1
+      order_state_change = order_state_changes.first
+      order_state_change.previous_state.should == "cart"
+      order_state_change.next_state.should == "complete"
     end
   end
 
@@ -489,6 +500,30 @@ describe Spree::Order do
       it "returns false" do
         assert !persisted_order.has_unprocessed_payments?
       end
+    end
+  end
+
+  context "add_update_hook" do
+    before do
+      Spree::Order.class_eval do
+        register_update_hook :add_awesome_sauce
+      end
+    end
+
+    after do
+      Spree::Order.update_hooks = Set.new
+    end
+
+    it "calls hook during update" do
+      order = create(:order)
+      order.should_receive(:add_awesome_sauce)
+      order.update!
+    end
+
+    it "calls hook during finalize" do
+      order = create(:order)
+      order.should_receive(:add_awesome_sauce)
+      order.finalize!
     end
   end
 end

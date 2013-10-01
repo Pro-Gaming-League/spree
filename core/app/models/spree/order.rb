@@ -17,7 +17,8 @@ module Spree
       go_to_state :delivery
       go_to_state :payment, :if => lambda { |order|
         # Fix for #2191
-        if order.shipping_method
+        # See #3708 also
+        if order.total.to_f <= 0 && order.shipping_method
           order.create_shipment!
           order.update_totals
         end
@@ -168,8 +169,13 @@ module Spree
     end
 
     # Used by the checkout state machine to check for unprocessed payments
-    # The Order should be unable to proceed to complete if there are unprocessed
+    # The Order should be only be able to proceed to complete if there are unprocessed
     # payments and there is payment required.
+    #
+    # The reason for this is directly before an order transitions to complete, all
+    # of the order's payments have `process!` called on it (look in order/checkout.rb).
+    # If payment *is* required and there's no payments which haven't already been tried,
+    # then the order cannot be paid for and therefore should not be able to become complete.
     def has_unprocessed_payments?
       payments.with_state('checkout').reload.exists?
     end
@@ -221,7 +227,7 @@ module Spree
     end
 
     def updater
-      OrderUpdater.new(self)
+      @updater ||= OrderUpdater.new(self)
     end
 
     def update!
@@ -340,7 +346,7 @@ module Spree
     def create_shipment!
       shipping_method(true)
       if shipment.present?
-        shipment.update_attributes!(:shipping_method => shipping_method)
+        shipment.update_attributes!({:shipping_method => shipping_method, :inventory_units => self.inventory_units}, :without_protection => true)
       else
         self.shipments << Shipment.create!({ :order => self,
                                           :shipping_method => shipping_method,
@@ -382,11 +388,11 @@ module Spree
       adjustments.each { |adjustment| adjustment.update_column('locked', true) }
 
       # update payment and shipment(s) states, and save
-      updater = OrderUpdater.new(self)
       updater.update_payment_state
-      shipments.each { |shipment| shipment.update!(self) }
+      shipments.reload.each { |shipment| shipment.update!(self) }
       updater.update_shipment_state
       save
+      updater.run_hooks
 
       deliver_order_confirmation_email
 
@@ -510,12 +516,15 @@ module Spree
       state = "#{name}_state"
       if persisted?
         old_state = self.send("#{state}_was")
-        self.state_changes.create({
-          :previous_state => old_state,
-          :next_state     => self.send(state),
-          :name           => name,
-          :user_id        => self.user_id
-        }, :without_protection => true)
+        new_state = self.send(state)
+        if old_state != new_state
+          self.state_changes.create({
+            :previous_state => old_state,
+            :next_state     => self.send(state),
+            :name           => name,
+            :user_id        => self.user_id
+          }, :without_protection => true)
+        end
       end
     end
 
